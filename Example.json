@@ -1,0 +1,16 @@
+{
+  "MailTo": ["bob@contoso.com"],
+  "MaxConcurrentJobs": 5,
+  "Tasks": [
+    {
+      "ComputerName": "PC1",
+      "Path": "C:\\folder1",
+      "MaxFiles": 10
+    },
+    {
+      "ComputerName": "PC2",
+      "Path": "C:\\folder1",
+      "MaxFiles": 10
+    }
+  ]
+}

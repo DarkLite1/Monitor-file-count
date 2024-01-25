@@ -173,7 +173,7 @@ Describe 'when an error occurs because a path is not found' {
             ($Message -like "*Errors:*Path*$($testNewInputFile.Tasks[0].Path)*ComputerName*$($testNewInputFile.Tasks[0].ComputerName)*MaxFiles*$($testNewInputFile.Tasks[0].MaxFiles)*Error: Path '$($testNewInputFile.Tasks[0].Path)' not found*")
         }
     }
-} -Tag test
+}
 Describe 'when all tests pass' {
     BeforeAll {
         1..5 | ForEach-Object {

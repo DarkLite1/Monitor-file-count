@@ -162,9 +162,14 @@ Process {
                 # & $scriptBlock -Path $task.Path -MaxFiles $task.MaxFiles
 
                 #region Start job
+                $sessionParams = @{
+                    ComputerName = $task.ComputerName
+                    ScriptName   = $ScriptName
+                }
+
                 $invokeParams = @{
                     ScriptBlock  = $scriptBlock
-                    Session      = New-PSSessionHC -ComputerName $task.ComputerName
+                    Session      = New-PSSessionHC @sessionParams
                     ArgumentList = $task.Path, $task.MaxFiles
                     AsJob        = $true
                 }

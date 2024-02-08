@@ -157,21 +157,25 @@ Process {
         #region Get file count
         foreach ($task in $Tasks) {
             try {
-                Write-Verbose "Start job on '$($task.ComputerName)' for path '$($task.Path)'"
+                $computerName = $task.ComputerName
+
+                Write-Verbose "Start job on '$computerName' for path '$($task.Path)'"
 
                 # & $scriptBlock -Path $task.Path -MaxFiles $task.MaxFiles
 
                 #region Start job
-                $sessionParams = @{
-                    ComputerName = $task.ComputerName
+                $getEndpointParams = @{
+                    ComputerName = $computerName
                     ScriptName   = $ScriptName
+                    ErrorAction  = 'Stop'
                 }
 
                 $invokeParams = @{
-                    ScriptBlock  = $scriptBlock
-                    Session      = New-PSSessionHC @sessionParams
-                    ArgumentList = $task.Path, $task.MaxFiles
-                    AsJob        = $true
+                    ScriptBlock       = $scriptBlock
+                    ConfigurationName = Get-PowerShellConnectableEndpointNameHC @getEndpointParams
+                    ComputerName      = $computerName
+                    ArgumentList      = $task.Path, $task.MaxFiles
+                    AsJob             = $true
                 }
                 $task.Job.Object = Invoke-Command @invokeParams
                 #endregion

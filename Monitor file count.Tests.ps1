@@ -171,25 +171,19 @@ Describe 'send an e-mail to the admin when' {
         }
     }
     It 'PSSessionConfiguration is incorrect' {
-        $testNewInputFile = Copy-ObjectHC $testInputFile
-        $testNewInputFile.Tasks = @(
-            @{
-                ComputerName = 'localhost'
-                Path         = 'TestDrive:\NotExisting'
-                MaxFiles     = 2
-            }
-        )
-
-        $testNewInputFile | ConvertTo-Json -Depth 5 |
+        $testInputFile | ConvertTo-Json -Depth 5 |
         Out-File @testOutParams
 
-        .$testScript @testParams
+        $testNewParams = $testParams.clone()
+        $testNewParams.PSSessionConfiguration = 'wrong'
+
+        .$testScript @testNewParams
 
         Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
             ($To -eq $testInputFile.MailTo) -and
             ($Priority -eq 'High') -and
             ($Subject -eq '0 files, 1 error') -and
-            ($Message -like "*Errors:*Path*$($testNewInputFile.Tasks[0].Path)*ComputerName*$($testNewInputFile.Tasks[0].ComputerName)*MaxFiles*$($testNewInputFile.Tasks[0].MaxFiles)*Error: Path '$($testNewInputFile.Tasks[0].Path)' not found*")
+            ($Message -like "*Errors:*Path*$($testInputFile.Tasks[0].Path)*ComputerName*$($testInputFile.Tasks[0].ComputerName)*MaxFiles*$($testInputFile.Tasks[0].MaxFiles)*Error:*Cannot find the wrong session configuration*")
         }
     }
 }

@@ -171,7 +171,6 @@ Process {
                         IsTooMuch = $fileCount -gt $MaxFiles
                     }
                 }
-
             }
             catch {
                 $task.Job.Error = $_

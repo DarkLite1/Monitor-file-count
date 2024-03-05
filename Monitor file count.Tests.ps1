@@ -4,7 +4,7 @@
 BeforeAll {
     $testInputFile = @{
         MailTo            = 'bob@contoso.com'
-        MaxConcurrentJobs = 5
+        MaxConcurrentJobs = 1
         Tasks             = @(
             @{
                 ComputerName = 'localhost'
@@ -148,9 +148,7 @@ Describe 'send an e-mail to the admin when' {
             }
         }
     }
-}
-Describe 'when an error occurs because a path is not found' {
-    BeforeAll {
+    It 'a Path in Tasks does not exist' {
         $testNewInputFile = Copy-ObjectHC $testInputFile
         $testNewInputFile.Tasks = @(
             @{
@@ -164,9 +162,30 @@ Describe 'when an error occurs because a path is not found' {
         Out-File @testOutParams
 
         .$testScript @testParams
+
+        Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
+            ($To -eq $testInputFile.MailTo) -and
+            ($Priority -eq 'High') -and
+            ($Subject -eq '0 files, 1 error') -and
+            ($Message -like "*Errors:*Path*$($testNewInputFile.Tasks[0].Path)*ComputerName*$($testNewInputFile.Tasks[0].ComputerName)*MaxFiles*$($testNewInputFile.Tasks[0].MaxFiles)*Error: Path '$($testNewInputFile.Tasks[0].Path)' not found*")
+        }
     }
-    It 'send an e-mail to the admin when' {
-        Should -Invoke Send-MailHC -Exactly 1 -Scope Describe -ParameterFilter {
+    It 'PSSessionConfiguration is incorrect' {
+        $testNewInputFile = Copy-ObjectHC $testInputFile
+        $testNewInputFile.Tasks = @(
+            @{
+                ComputerName = 'localhost'
+                Path         = 'TestDrive:\NotExisting'
+                MaxFiles     = 2
+            }
+        )
+
+        $testNewInputFile | ConvertTo-Json -Depth 5 |
+        Out-File @testOutParams
+
+        .$testScript @testParams
+
+        Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
             ($To -eq $testInputFile.MailTo) -and
             ($Priority -eq 'High') -and
             ($Subject -eq '0 files, 1 error') -and

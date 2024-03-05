@@ -1,5 +1,5 @@
-#Requires -Version 5.1
-#Requires -Modules Toolbox.HTML, Toolbox.EventLog, Toolbox.Remoting
+#Requires -Version 7
+#Requires -Modules Toolbox.HTML, Toolbox.EventLog
 
 <#
     .SYNOPSIS
@@ -12,8 +12,9 @@
     .PARAMETER ImportFile
         Contains all the parameters for the script.
 
-    .PARAMETER MailTo
-        E-mail addresses of where to send the summary e-mail
+    .PARAMETER PSSessionConfiguration
+        The version of PowerShell on the remote endpoint as returned by
+        Get-PSSessionConfiguration.
 #>
 
 [CmdLetBinding()]
@@ -22,6 +23,7 @@ Param (
     [String]$ScriptName,
     [Parameter(Mandatory)]
     [String]$ImportFile,
+    [String]$PSSessionConfiguration = 'PowerShell.7',
     [String]$LogFolder = "$env:POWERSHELL_LOG_FOLDER\Monitor\Monitor file count\$ScriptName",
     [String[]]$ScriptAdmin = @(
         $env:POWERSHELL_SCRIPT_ADMIN,
@@ -111,9 +113,8 @@ Begin {
             Name       = 'Job'
             Expression = {
                 [PSCustomObject]@{
-                    Object = $null
                     Result = $null
-                    Errors = @()
+                    Error  = $null
                 }
             }
         }
@@ -130,107 +131,69 @@ Begin {
 Process {
     Try {
         $scriptBlock = {
-            Param (
-                [Parameter(Mandatory)]
-                [String]$Path,
-                [Parameter(Mandatory)]
-                [Int]$MaxFiles
-            )
-
-            if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
-                throw "Path '$Path' not found"
-            }
-
-            $params = @{
-                LiteralPath = $Path
-                File        = $true
-                ErrorAction = 'Stop'
-            }
-            $fileCount = (Get-ChildItem @params | Measure-Object).Count
-
-            [PSCustomObject]@{
-                FileCount = $fileCount
-                IsTooMuch = $fileCount -gt $MaxFiles
-            }
-        }
-
-        #region Get file count
-        foreach ($task in $Tasks) {
             try {
-                $computerName = $task.ComputerName
+                $task = $_
 
-                Write-Verbose "Start job on '$computerName' for path '$($task.Path)'"
-
-                # & $scriptBlock -Path $task.Path -MaxFiles $task.MaxFiles
-
-                #region Start job
-                $getEndpointParams = @{
-                    ComputerName = $computerName
-                    ScriptName   = $ScriptName
-                    ErrorAction  = 'Stop'
+                #region Declare variables for parallel execution
+                if (-not $MaxConcurrentJobs) {
+                    $PSSessionConfiguration = $using:PSSessionConfiguration
                 }
+                #endregion
 
                 $invokeParams = @{
-                    ScriptBlock       = $scriptBlock
-                    ConfigurationName = Get-PowerShellConnectableEndpointNameHC @getEndpointParams
-                    ComputerName      = $computerName
+                    ComputerName      = $task.ComputerName
                     ArgumentList      = $task.Path, $task.MaxFiles
-                    AsJob             = $true
+                    ConfigurationName = $PSSessionConfiguration
+                    ErrorAction       = 'Stop'
                 }
-                $task.Job.Object = Invoke-Command @invokeParams
-                #endregion
 
-                #region Wait for max running jobs
-                if ($Tasks.Job.Object) {
-                    $waitParams = @{
-                        Name       = $Tasks.Job.Object | Where-Object { $_ }
-                        MaxThreads = $MaxConcurrentJobs
+                $task.Job.Result = Invoke-Command @invokeParams -ScriptBlock {
+                    Param (
+                        [Parameter(Mandatory)]
+                        [String]$Path,
+                        [Parameter(Mandatory)]
+                        [Int]$MaxFiles
+                    )
+
+                    if (-not (Test-Path -LiteralPath $Path -PathType 'Container')) {
+                        throw "Path '$Path' not found"
                     }
-                    Wait-MaxRunningJobsHC @waitParams
+
+                    $params = @{
+                        LiteralPath = $Path
+                        File        = $true
+                        ErrorAction = 'Stop'
+                    }
+                    $fileCount = (Get-ChildItem @params | Measure-Object).Count
+
+                    [PSCustomObject]@{
+                        FileCount = $fileCount
+                        IsTooMuch = $fileCount -gt $MaxFiles
+                    }
                 }
-                #endregion
+
             }
             catch {
-                $task.Job.Errors += $_
+                $task.Job.Error = $_
                 $Error.RemoveAt(0)
             }
         }
-        #endregion
 
-        #region Wait for jobs to finish
-        if ($Tasks.Job.Object) {
-            Write-Verbose 'Wait for all jobs to finish'
-            $Tasks.Job.Object | Where-Object { $_ } | Wait-Job
-        }
-
-        $M = 'All jobs finished'
-        Write-Verbose $M; Write-EventLog @EventVerboseParams -Message $M
-        #endregion
-
-        #region Get job results and job errors
-        foreach (
-            $task in
-            $Tasks | Where-Object { $_.Job.Object }
-        ) {
-            Write-Verbose "Get job result for ComputerName '$($task.ComputerName)' Path '$($task.Path)' MaxFiles '$($task.MaxFiles)'"
-
-            $jobErrors = @()
-            $receiveParams = @{
-                ErrorVariable = 'jobErrors'
-                ErrorAction   = 'SilentlyContinue'
+        #region Run code serial or parallel
+        $foreachParams = if ($MaxConcurrentJobs -eq 1) {
+            @{
+                Process = $scriptBlock
             }
-            $task.Job.Result = $task.Job.Object | Receive-Job @receiveParams
-
-            Write-Verbose "Job result FileCount '$($task.Job.Result.FileCount)' IsTooMuch '$($task.Job.Result.IsTooMuch)'"
-
-            foreach ($e in $jobErrors) {
-                Write-Warning "Failed with job error: $($e.ToString())"
-
-                $task.Job.Errors += $e.ToString()
-                $Error.Remove($e)
+        }
+        else {
+            @{
+                Parallel      = $scriptBlock
+                ThrottleLimit = $MaxConcurrentJobs
             }
         }
         #endregion
+
+        $Tasks | ForEach-Object @foreachParams
     }
     Catch {
         Write-Warning $_
@@ -316,12 +279,10 @@ End {
 
         foreach (
             $task in
-            $tasks | Where-Object { $_.Job.Errors }
+            $tasks | Where-Object { $_.Job.Error }
         ) {
-            foreach ($e in $task.Job.Errors) {
-                $allErrors += "Path '{0}' ComputerName '{1}' MaxFiles '{2}'<br>Error: {3}" -f
-                $task.Path, $task.ComputerName, $task.MaxFiles, $e
-            }
+            $allErrors += "Path '{0}' ComputerName '{1}' MaxFiles '{2}'<br>Error: {3}" -f
+            $task.Path, $task.ComputerName, $task.MaxFiles, $task.Job.Error
         }
 
         if ($allErrors) {

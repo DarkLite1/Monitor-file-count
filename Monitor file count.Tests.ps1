@@ -187,25 +187,47 @@ Describe 'send an e-mail to the admin when' {
         }
     }
 }
-Describe 'when all tests pass' {
+Describe 'when all tests pass and' {
     BeforeAll {
         1..5 | ForEach-Object {
             New-Item -Path "$($testInputFile.Tasks[0].Path)\$_.txt" -ItemType File -Force
         }
-
-        $testInputFile | ConvertTo-Json -Depth 5 |
-        Out-File @testOutParams
-
-        .$testScript @testParams
     }
-    It 'send a summary mail to the user' {
-        Should -Invoke Send-MailHC -Exactly 1 -Scope Describe -ParameterFilter {
-            ($To -eq $testInputFile.MailTo) -and
-            ($Priority -eq 'High') -and
-            ($Subject -eq '5 files') -and
-            ($Message -like "*We found more files than indicated by '<b>MaxFiles</b>'*
-            *Path*ComputerName*FileCount*MaxFiles*
-            *$($testInputFile.Tasks[0].Path)*$($testInputFile.Tasks[0].ComputerName)*5*$($testInputFile.Tasks[0].MaxFiles)*")
+    Context 'there are too many files' {
+        BeforeAll {
+            $testNewInputFile = Copy-ObjectHC $testInputFile
+            $testNewInputFile.Tasks[0].MaxFiles = 4
+
+            $testNewInputFile | ConvertTo-Json -Depth 5 |
+            Out-File @testOutParams
+
+            .$testScript @testParams
+        }
+        It 'send a summary mail to the user' {
+            Should -Invoke Send-MailHC -Exactly 1 -Scope Context -ParameterFilter {
+                ($To -eq $testNewInputFile.MailTo) -and
+                ($Priority -eq 'High') -and
+                ($Subject -eq '5 files') -and
+                ($Message -like "*We found more files than indicated by '<b>MaxFiles</b>'*
+                *Path*ComputerName*FileCount*MaxFiles*
+                *$($testNewInputFile.Tasks[0].Path)*$($testNewInputFile.Tasks[0].ComputerName)*5*$($testNewInputFile.Tasks[0].MaxFiles)*")
+            }
+        }
+        It 'no error mail is sent' {
+            Should -Invoke Send-MailHC -Scope Context -Times 1 -Exactly
+        }
+    }
+    Context 'there are not too many files' {
+        It 'no mail is sent' {
+            $testNewInputFile = Copy-ObjectHC $testInputFile
+            $testNewInputFile.Tasks[0].MaxFiles = 6
+
+            $testNewInputFile | ConvertTo-Json -Depth 5 |
+            Out-File @testOutParams
+
+            .$testScript @testParams
+
+            Should -Not -Invoke Send-MailHC
         }
     }
 }

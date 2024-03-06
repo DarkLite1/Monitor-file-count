@@ -260,70 +260,62 @@ End {
         }
         #endregion
 
-        #region Get tasks with too many files
-        $tasksWithTooManyFiles = $tasks | Where-Object {
-            $_.Job.Result.IsTooMuch
-        }
+        if (
+            $tasksWithTooManyFiles = $tasks | Where-Object {
+                $_.Job.Result.IsTooMuch
+            }
+        ) {
+            $counter.TotalFiles = (
+                $tasksWithTooManyFiles.Job.Result |
+                Measure-Object -Property 'FileCount' -Sum
+            ).Sum + 0
 
-        $counter.TotalFiles = (
-            $tasksWithTooManyFiles.Job.Result |
-            Measure-Object -Property 'FileCount' -Sum
-        ).Sum + 0
-        #endregion
+            $mailParams = @{
+                To        = $MailTo
+                Bcc       = $ScriptAdmin
+                Subject   = '{0} files' -f $counter.TotalFiles
+                Priority  = 'High'
+                LogFolder = $LogParams.LogFolder
+                Header    = $ScriptName
+                Save      = $LogFile + ' - Mail.html'
+            }
 
-        $mailParams = @{
-            To        = $MailTo
-            Bcc       = $ScriptAdmin
-            Subject   = '{0} files' -f $counter.TotalFiles
-            Priority  = 'High'
-            Message   = @()
-            LogFolder = $LogParams.LogFolder
-            Header    = $ScriptName
-            Save      = $LogFile + ' - Mail.html'
-        }
-
-        if ($tasksWithTooManyFiles) {
             $htmlRows = $tasksWithTooManyFiles | ForEach-Object {
                 $M = "Create HTML row for FileCount '$($_.Job.Result.FileCount)' ComputerName '$($_.ComputerName)' Path '$($_.Path)' MaxFiles '$($_.MaxFiles)'"
                 Write-Verbose $M; Write-EventLog @EventOutParams -Message $M
 
-                @"
-                <tr">
-                    <td id="TxtLeft">$(
+                "<tr>
+                    <td id=`"TxtLeft`">$(
                         ConvertTo-HTMLlinkHC -Path $_.Path -Name $_.Path)</td>
-                    <td id="TxtCentered">$($_.ComputerName)</td>
-                    <td id="TxtCentered">$($_.Job.Result.FileCount)</td>
-                    <td id="TxtCentered">$($_.MaxFiles)</td>
-                </tr>
-"@
+                    <td id=`"TxtCentered`">$($_.ComputerName)</td>
+                    <td id=`"TxtCentered`">$($_.Job.Result.FileCount)</td>
+                    <td id=`"TxtCentered`">$($_.MaxFiles)</td>
+                </tr>"
             }
 
-            $mailParams.Message += @"
+            $mailParams.Message = "
                 <style>
-                #TxtLeft{
-                    border: 1px solid Gray;
-	                border-collapse:collapse;
-	                text-align:left;
-                }
-                #TxtCentered {
-	                text-align: center;
-	                border: 1px solid Gray;
-                }
+                    #TxtLeft{
+                        border: 1px solid Gray;
+                        border-collapse:collapse;
+                        text-align:left;
+                    }
+                    #TxtCentered {
+                        text-align: center;
+                        border: 1px solid Gray;
+                    }
                 </style>
                 <p>We found more files than indicated by '<b>MaxFiles</b>':</p>
-                <table id="TxtLeft">
-                <tr bgcolor="LightGrey" style="background:LightGrey;">
-                <th id="TxtLeft">Path</th>
-                <th id="TxtCentered" class="Centered">ComputerName</th>
-                <th id="TxtCentered" class="Centered">FileCount</th>
-                <th id="TxtCentered" class="Centered">MaxFiles</th>
-                </tr>
-                $htmlRows
-                </table>
-"@
-        }
+                <table id=`"TxtLeft`">
+                    <tr bgcolor=`"LightGrey`" style=`"background:LightGrey;`">
+                    <th id=`"TxtLeft`">Path</th>
+                    <th id=`"TxtCentered`" class=`"Centered`">ComputerName</th>
+                    <th id=`"TxtCentered`" class=`"Centered`">FileCount</th>
+                    <th id=`"TxtCentered`" class=`"Centered`">MaxFiles</th>
+                    </tr>
+                    $htmlRows
+                </table>"
 
-        if ($mailParams.Message) {
             Get-ScriptRuntimeHC -Stop
             Send-MailHC @mailParams
         }

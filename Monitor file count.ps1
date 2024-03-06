@@ -204,14 +204,68 @@ Process {
 
 End {
     Try {
+        $counter = @{
+            JobErrors    = (
+                $Tasks | Where-Object { $_.Job.Error } | Measure-Object
+            ).Count
+            SystemErrors = (
+                $Error.Exception.Message | Get-Unique | Measure-Object
+            ).Count
+        }
+
+        #region Send mail to admin on errors
+        if ($totalErrors = $counter.JobErrors + $counter.SystemErrors) {
+            #region System errors
+            $systemErrorsHtmlList = if ($counter.SystemErrors) {
+                $uniqueSystemErrors = $Error.Exception.Message |
+                Where-Object { $_ } | Get-Unique
+
+                $uniqueSystemErrors | ForEach-Object {
+                    Write-EventLog @EventErrorParams -Message $_
+                }
+
+                $uniqueSystemErrors |
+                ConvertTo-HtmlListHC -Spacing Wide -Header 'System errors:'
+            }
+            #endregion
+
+            #region Job errors
+            $jobErrorsHtmlList = if ($counter.JobErrors) {
+                $jobErrorList = foreach (
+                    $task in
+                    $tasks | Where-Object { $_.Job.Error }
+                ) {
+                    "Path: '{0}'<br>ComputerName: '{1}'<br>MaxFiles: '{2}'<br><br>Error: {3}" -f
+                    $task.Path, $task.ComputerName, $task.MaxFiles, $task.Job.Error
+                }
+
+                $jobErrorList |
+                ConvertTo-HtmlListHC -Spacing Wide -Header 'Job errors:'
+            }
+            #endregion
+
+            $mailParams = @{
+                To        = $ScriptAdmin
+                Subject   = 'FAILURE {0} error{1}' -f $totalErrors,
+                $(if ($totalErrors -ne 1) { 's' })
+                Priority  = 'High'
+                Message   = "<p>Failures detected while executing the script.</p>
+                $systemErrorsHtmlList
+                $jobErrorsHtmlList"
+                LogFolder = $LogParams.LogFolder
+                Header    = $ScriptName
+                Save      = $LogFile + ' - Mail error.html'
+            }
+            Send-MailHC @mailParams
+        }
+        #endregion
+
         #region Get tasks with too many files
         $tasksWithTooManyFiles = $tasks | Where-Object {
             $_.Job.Result.IsTooMuch
         }
-        #endregion
 
-        #region Count total files
-        $totalFileCount = (
+        $counter.TotalFiles = (
             $tasksWithTooManyFiles.Job.Result |
             Measure-Object -Property 'FileCount' -Sum
         ).Sum + 0
@@ -220,7 +274,7 @@ End {
         $mailParams = @{
             To        = $MailTo
             Bcc       = $ScriptAdmin
-            Subject   = '{0} files' -f $totalFileCount
+            Subject   = '{0} files' -f $counter.TotalFiles
             Priority  = 'High'
             Message   = @()
             LogFolder = $LogParams.LogFolder
@@ -268,35 +322,6 @@ End {
                 </table>
 "@
         }
-
-        #region Report errors
-        $allErrors = @()
-
-        if ($Error.Exception.Message) {
-            $allErrors += $Error.Exception.Message
-        }
-
-        foreach (
-            $task in
-            $tasks | Where-Object { $_.Job.Error }
-        ) {
-            $allErrors += "Path '{0}' ComputerName '{1}' MaxFiles '{2}'<br>Error: {3}" -f
-            $task.Path, $task.ComputerName, $task.MaxFiles, $task.Job.Error
-        }
-
-        if ($allErrors) {
-            $mailParams.Subject = '{0}, {1} error{2}' -f
-            $mailParams.Subject,
-            $allErrors.Count,
-            $(if ($allErrors.Count -ne 1) { 's' })
-
-            $allErrors | ForEach-Object {
-                Write-EventLog @EventErrorParams -Message "Error:`n`n- $_"
-            }
-            $mailParams.Message += $allErrors |
-            ConvertTo-HtmlListHC -Spacing Wide -Header 'Errors:'
-        }
-        #endregion
 
         if ($mailParams.Message) {
             Get-ScriptRuntimeHC -Stop

@@ -164,9 +164,9 @@ Describe 'send an e-mail to the admin when' {
         .$testScript @testParams
 
         Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
-            ($To -eq $testInputFile.MailTo) -and
+            ($To -eq $testParams.ScriptAdmin) -and
             ($Priority -eq 'High') -and
-            ($Subject -eq '0 files, 1 error') -and
+            ($Subject -eq 'FAILURE 1 error') -and
             ($Message -like "*Errors:*Path*$($testNewInputFile.Tasks[0].Path)*ComputerName*$($testNewInputFile.Tasks[0].ComputerName)*MaxFiles*$($testNewInputFile.Tasks[0].MaxFiles)*Error: Path '$($testNewInputFile.Tasks[0].Path)' not found*")
         }
     }
@@ -180,9 +180,9 @@ Describe 'send an e-mail to the admin when' {
         .$testScript @testNewParams
 
         Should -Invoke Send-MailHC -Exactly 1 -ParameterFilter {
-            ($To -eq $testInputFile.MailTo) -and
+            ($To -eq $testParams.ScriptAdmin) -and
             ($Priority -eq 'High') -and
-            ($Subject -eq '0 files, 1 error') -and
+            ($Subject -eq 'FAILURE 1 error') -and
             ($Message -like "*Errors:*Path*$($testInputFile.Tasks[0].Path)*ComputerName*$($testInputFile.Tasks[0].ComputerName)*MaxFiles*$($testInputFile.Tasks[0].MaxFiles)*Error:*Cannot find the wrong session configuration*")
         }
     }
